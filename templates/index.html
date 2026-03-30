@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Recognize — FaceGuard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Face Recognition</h1>
+  <p class="subtitle">Select a week, start the camera, then scan a student's face</p>
+</div>
+
+<div class="recognition-layout">
+
+  <!-- Camera panel -->
+  <div class="camera-card">
+    <div class="camera-wrapper">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas" style="display:none"></canvas>
+      <div class="scan-line"></div>
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+    </div>
+
+    <div class="camera-controls">
+      <button id="startBtn"  class="btn btn-primary"  onclick="startCamera()">▶ Start Camera</button>
+      <button id="stopBtn"   class="btn btn-ghost"    onclick="stopCamera()"  style="display:none">■ Stop Camera</button>
+      <button id="scanBtn"   class="btn btn-accent"   onclick="scanFace()"    disabled>Scan Face</button>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="result-panel">
+
+    <!-- Week selector -->
+    <div class="week-selector">
+      <label for="weekSelect">Week</label>
+      <select id="weekSelect" class="form-input">
+        {% for w in range(1, 15) %}
+        <option value="{{ w }}">Week {{ w }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Status box -->
+    <div id="statusBox" class="status-box idle">
+      <div class="status-icon">⬡</div>
+      <div class="status-text">Waiting for scan…</div>
+    </div>
+
+    <!-- Log -->
+    <div class="recent-log">
+      <h3>Session Log</h3>
+      <div id="logList" class="log-list">
+        <p class="empty-msg">No scans yet this session.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let stream = null;
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    document.getElementById('video').srcObject = stream;
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display  = 'inline-flex';
+    document.getElementById('scanBtn').disabled = false;
+  } catch(e) {
+    alert('Camera access denied: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  const video = document.getElementById('video');
+  video.srcObject = null;
+  document.getElementById('startBtn').style.display = 'inline-flex';
+  document.getElementById('stopBtn').style.display  = 'none';
+  document.getElementById('scanBtn').disabled = true;
+}
+
+async function scanFace() {
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const week   = document.getElementById('weekSelect').value;
+
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const imageData = canvas.toDataURL('image/jpeg', 0.85);
+
+  setStatus('scanning', '🔍 Analyzing…');
+  document.getElementById('scanBtn').disabled = true;
+
+  try {
+    const res  = await fetch('/api/recognize', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ image: imageData, week: parseInt(week) })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      setStatus('error', `Server error ${res.status}: ${text.slice(0, 120)}`);
+      return;
+    }
+
+    const data = await res.json();
+
+    if (data.success) {
+      setStatus(data.already ? 'warning' : 'success', data.message);
+      if (!data.already) addToLog(data.name, data.confidence, week);
+    } else {
+      setStatus('error', data.message);
+    }
+  } catch(e) {
+    setStatus('error', 'Fetch failed: ' + e.message);
+  } finally {
+    document.getElementById('scanBtn').disabled = false;
+  }
+}
+
+function setStatus(type, msg) {
+  const icons = { idle:'⬡', scanning:'◌', success:'✓', error:'✕', warning:'⚠' };
+  const box   = document.getElementById('statusBox');
+  box.className = 'status-box ' + type;
+  box.querySelector('.status-icon').textContent = icons[type] || '⬡';
+  box.querySelector('.status-text').textContent = msg;
+}
+
+function addToLog(name, confidence, week) {
+  const list  = document.getElementById('logList');
+  const empty = list.querySelector('.empty-msg');
+  if (empty) empty.remove();
+  const now  = new Date().toLocaleTimeString();
+  const item = document.createElement('div');
+  item.className = 'log-item';
+  item.innerHTML = `<span class="log-name">${name}</span>
+                    <span class="log-meta">Wk ${week} · ${confidence}% · ${now}</span>`;
+  list.prepend(item);
+}
+</script>
+{% endblock %}

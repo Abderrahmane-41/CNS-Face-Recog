@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Attendance — FaceGuard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Attendance Log</h1>
+  <p class="subtitle">Presence across all 14 weeks</p>
+</div>
+
+<div class="attendance-layout">
+
+  <div class="toolbar">
+    <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV</button>
+    <span id="summaryText" class="summary-text"></span>
+  </div>
+
+  <div class="attendance-table-wrapper">
+    <table class="attendance-table" id="attTable">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Student Name</th>
+          {% for w in range(1, 15) %}
+          <th>W{{ w }}</th>
+          {% endfor %}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody id="attendanceBody">
+        <tr><td colspan="17" class="empty-msg">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let tableData = [];
+
+async function loadAttendance() {
+  const body = document.getElementById('attendanceBody');
+  try {
+    const res = await fetch('/api/attendance');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    tableData = await res.json();
+  } catch(e) {
+    body.innerHTML = `<tr><td colspan="17" class="empty-msg">Failed to load: ${e.message}</td></tr>`;
+    return;
+  }
+
+  if (!tableData.length) {
+    body.innerHTML = '<tr><td colspan="17" class="empty-msg">No students enrolled yet.</td></tr>';
+    document.getElementById('summaryText').textContent = '';
+    return;
+  }
+
+  body.innerHTML = tableData.map((s, i) => {
+    let total = 0;
+    const weekCells = Array.from({length: 14}, (_, k) => {
+      const present = s[`week${k+1}`] === 1;
+      if (present) total++;
+      return `<td class="${present ? 'cell-present' : 'cell-absent'}">${present ? '✔' : ''}</td>`;
+    }).join('');
+
+    return `
+      <tr>
+        <td class="row-num">${s.id}</td>
+        <td class="student-cell">
+          <span class="mini-avatar">${s.name[0].toUpperCase()}</span>${s.name}
+        </td>
+        ${weekCells}
+        <td class="total-cell">${total}/14</td>
+      </tr>`;
+  }).join('');
+
+  const total = tableData.length;
+  document.getElementById('summaryText').textContent = `${total} student${total !== 1 ? 's' : ''} enrolled`;
+}
+
+function exportCSV() {
+  if (!tableData.length) { alert('No data to export.'); return; }
+
+  const weeks  = Array.from({length: 14}, (_, i) => `Week ${i+1}`);
+  const header = ['ID', 'Name', ...weeks, 'Total'].join(',');
+  const rows   = tableData.map(s => {
+    const weeks = Array.from({length: 14}, (_, k) => s[`week${k+1}`] ? 1 : 0);
+    const total = weeks.reduce((a, b) => a + b, 0);
+    return [`"${s.id}"`, `"${s.name}"`, ...weeks, total].join(',');
+  });
+
+  const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'attendance.csv';
+  a.click();
+}
+
+loadAttendance();
+</script>
+{% endblock %}

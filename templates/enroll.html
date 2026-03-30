@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Enroll — FaceGuard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Enroll Student</h1>
+  <p class="subtitle">Register a new student's face into the system</p>
+</div>
+
+<div class="enroll-layout">
+
+  <!-- Camera -->
+  <div class="camera-card">
+    <div class="camera-wrapper">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas" style="display:none"></canvas>
+      <div id="previewImg" class="preview-img" style="display:none"></div>
+      <div class="corner tl"></div><div class="corner tr"></div>
+      <div class="corner bl"></div><div class="corner br"></div>
+    </div>
+    <div class="camera-controls">
+      <button id="startBtn"   class="btn btn-primary"   onclick="startCamera()">▶ Start Camera</button>
+      <button id="captureBtn" class="btn btn-secondary"  onclick="capturePhoto()" disabled>📸 Capture</button>
+      <button id="retakeBtn"  class="btn btn-ghost"      onclick="retake()" style="display:none" disabled>↺ Retake</button>
+    </div>
+  </div>
+
+  <!-- Form -->
+  <div class="enroll-form-panel">
+    <h3>Student Details</h3>
+
+    <div class="form-group">
+      <label for="studentName">Full Name</label>
+      <input type="text" id="studentName" class="form-input" placeholder="e.g. John Doe"/>
+    </div>
+
+    <div id="captureStatus" class="capture-status">
+      <span class="dot dot-empty"></span>&nbsp;No photo captured yet
+    </div>
+
+    <button id="enrollBtn" class="btn btn-accent btn-block" onclick="enrollStudent()" disabled>
+      Enroll Student
+    </button>
+
+    <div id="enrollResult" class="enroll-result" style="display:none"></div>
+
+    <!-- Enrolled list -->
+    <div class="students-list-section">
+      <h3>Enrolled Students</h3>
+      <div id="studentsList" class="students-list"></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let capturedImage = null;
+let cameraStream  = null;
+
+async function startCamera() {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    document.getElementById('video').srcObject = cameraStream;
+    document.getElementById('startBtn').disabled   = true;
+    document.getElementById('captureBtn').disabled = false;
+  } catch(e) {
+    alert('Camera error: ' + e.message);
+  }
+}
+
+function capturePhoto() {
+  // Disable retake during capture so the user can't interrupt
+  document.getElementById('captureBtn').disabled = true;
+  document.getElementById('retakeBtn').disabled  = true;
+
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  capturedImage = canvas.toDataURL('image/jpeg', 0.85);
+
+  // Show preview
+  const preview = document.getElementById('previewImg');
+  preview.style.backgroundImage = `url(${capturedImage})`;
+  preview.style.display   = 'block';
+  video.style.display     = 'none';
+
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retakeBtn').style.display  = 'inline-flex';
+  document.getElementById('retakeBtn').disabled       = false;  // re-enable after capture done
+
+  document.getElementById('captureStatus').innerHTML =
+    '<span class="dot dot-green"></span>&nbsp;Photo captured ✓';
+  document.getElementById('enrollBtn').disabled = false;
+}
+
+function retake() {
+  capturedImage = null;
+  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('video').style.display      = 'block';
+  document.getElementById('captureBtn').style.display = 'inline-flex';
+  document.getElementById('captureBtn').disabled      = false;
+  document.getElementById('retakeBtn').style.display  = 'none';
+  document.getElementById('captureStatus').innerHTML =
+    '<span class="dot dot-empty"></span>&nbsp;No photo captured yet';
+  document.getElementById('enrollBtn').disabled = true;
+}
+
+async function enrollStudent() {
+  const name = document.getElementById('studentName').value.trim();
+  if (!name)          { alert('Please enter the student name.'); return; }
+  if (!capturedImage) { alert('Please capture a photo first.'); return; }
+
+  const btn = document.getElementById('enrollBtn');
+  btn.disabled    = true;
+  btn.textContent = 'Enrolling…';
+
+  try {
+    const res  = await fetch('/api/enroll', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ name, image: capturedImage })
+    });
+    const data = await res.json();
+
+    const resultDiv = document.getElementById('enrollResult');
+    resultDiv.style.display = 'block';
+    resultDiv.className     = 'enroll-result ' + (data.success ? 'result-success' : 'result-error');
+    resultDiv.textContent   = data.message;
+
+    if (data.success) {
+      document.getElementById('studentName').value = '';
+      retake();
+      loadStudents();
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Enroll Student';
+  }
+}
+
+async function loadStudents() {
+  const res  = await fetch('/api/students');
+  const list = await res.json();
+  const div  = document.getElementById('studentsList');
+  if (!list.length) {
+    div.innerHTML = '<p class="empty-msg">No students enrolled yet.</p>';
+    return;
+  }
+  div.innerHTML = list.map(s => `
+    <div class="student-item">
+      <span class="student-avatar">${s.name[0].toUpperCase()}</span>
+      <span class="student-name">${s.name}</span>
+      <button class="btn-delete" onclick="deleteStudent(${s.id}, '${s.name}')">✕</button>
+    </div>
+  `).join('');
+}
+
+async function deleteStudent(id, name) {
+  if (!confirm(`Remove ${name} from the system?`)) return;
+  await fetch(`/api/students/${id}`, { method: 'DELETE' });
+  loadStudents();
+}
+
+loadStudents();
+</script>
+{% endblock %}
