@@ -310,6 +310,26 @@ body {
 .cell-present { color: var(--accent); font-size: 1rem; }
 .cell-absent  { color: var(--border); }
 
+/* ── Active liveness badge ─────────────────────────────────────────────────── */
+.liveness-badge {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .45rem .9rem;
+  border-radius: var(--radius-sm);
+  font-size: .8rem;
+  font-weight: 600;
+  background: rgba(255,170,0,.08);
+  border: 1px solid rgba(255,170,0,.3);
+  color: var(--warning);
+  width: 100%;
+}
+.liveness-badge.live-ok {
+  background: rgba(0,229,160,.08);
+  border-color: rgba(0,229,160,.3);
+  color: var(--accent);
+}
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 800px) {
   .recognition-layout,

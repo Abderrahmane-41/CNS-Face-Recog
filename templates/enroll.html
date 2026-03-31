@@ -18,6 +18,10 @@
       <div class="corner tl"></div><div class="corner tr"></div>
       <div class="corner bl"></div><div class="corner br"></div>
     </div>
+    <div id="livenessStatus" class="liveness-badge" style="display:none">
+      👁 <span id="livMsg"></span>
+    </div>
+
     <div class="camera-controls">
       <button id="startBtn"   class="btn btn-primary"   onclick="startCamera()">▶ Start Camera</button>
       <button id="captureBtn" class="btn btn-secondary"  onclick="capturePhoto()" disabled>📸 Capture</button>
@@ -55,6 +59,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='liveness.js') }}"></script>
 <script>
 let capturedImage = null;
 let cameraStream  = null;
@@ -64,13 +70,19 @@ async function startCamera() {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
     document.getElementById('video').srcObject = cameraStream;
     document.getElementById('startBtn').disabled   = true;
-    document.getElementById('captureBtn').disabled = false;
+    document.getElementById('captureBtn').disabled = true;
+    try {
+      await initLiveness(() => { document.getElementById('captureBtn').disabled = false; });
+    } catch(le) {
+      alert('Liveness check unavailable: ' + le.message);
+    }
   } catch(e) {
     alert('Camera error: ' + e.message);
   }
 }
 
 function capturePhoto() {
+  teardownLiveness();
   // Disable retake during capture so the user can't interrupt
   document.getElementById('captureBtn').disabled = true;
   document.getElementById('retakeBtn').disabled  = true;
@@ -97,16 +109,17 @@ function capturePhoto() {
   document.getElementById('enrollBtn').disabled = false;
 }
 
-function retake() {
+async function retake() {
   capturedImage = null;
   document.getElementById('previewImg').style.display = 'none';
   document.getElementById('video').style.display      = 'block';
   document.getElementById('captureBtn').style.display = 'inline-flex';
-  document.getElementById('captureBtn').disabled      = false;
+  document.getElementById('captureBtn').disabled      = true;
   document.getElementById('retakeBtn').style.display  = 'none';
   document.getElementById('captureStatus').innerHTML =
     '<span class="dot dot-empty"></span>&nbsp;No photo captured yet';
   document.getElementById('enrollBtn').disabled = true;
+  await initLiveness(() => { document.getElementById('captureBtn').disabled = false; });
 }
 
 async function enrollStudent() {

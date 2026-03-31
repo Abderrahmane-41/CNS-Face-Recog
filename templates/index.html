@@ -19,6 +19,10 @@
       <div class="corner bl"></div><div class="corner br"></div>
     </div>
 
+    <div id="livenessStatus" class="liveness-badge" style="display:none">
+      👁 <span id="livMsg"></span>
+    </div>
+
     <div class="camera-controls">
       <button id="startBtn"  class="btn btn-primary"  onclick="startCamera()">▶ Start Camera</button>
       <button id="stopBtn"   class="btn btn-ghost"    onclick="stopCamera()"  style="display:none">■ Stop Camera</button>
@@ -58,6 +62,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='liveness.js') }}"></script>
 <script>
 let stream = null;
 
@@ -67,13 +73,19 @@ async function startCamera() {
     document.getElementById('video').srcObject = stream;
     document.getElementById('startBtn').style.display = 'none';
     document.getElementById('stopBtn').style.display  = 'inline-flex';
-    document.getElementById('scanBtn').disabled = false;
+    document.getElementById('scanBtn').disabled = true;
+    try {
+      await initLiveness(() => { document.getElementById('scanBtn').disabled = false; });
+    } catch(le) {
+      setStatus('error', 'Liveness check unavailable: ' + le.message);
+    }
   } catch(e) {
     alert('Camera access denied: ' + e.message);
   }
 }
 
 function stopCamera() {
+  teardownLiveness();
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   const video = document.getElementById('video');
   video.srcObject = null;
@@ -119,7 +131,7 @@ async function scanFace() {
   } catch(e) {
     setStatus('error', 'Fetch failed: ' + e.message);
   } finally {
-    document.getElementById('scanBtn').disabled = false;
+    resetLiveness(() => { document.getElementById('scanBtn').disabled = false; });
   }
 }
 
