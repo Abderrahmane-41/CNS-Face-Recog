@@ -20,6 +20,7 @@
     </div>
     <div class="camera-controls">
       <button id="startBtn"   class="btn btn-primary"   onclick="startCamera()">▶ Start Camera</button>
+      <button id="stopBtn"    class="btn btn-ghost"     onclick="stopCamera()"   style="display:none">■ Stop Camera</button>
       <button id="captureBtn" class="btn btn-secondary"  onclick="capturePhoto()" disabled>📸 Capture</button>
       <button id="retakeBtn"  class="btn btn-ghost"      onclick="retake()" style="display:none" disabled>↺ Retake</button>
     </div>
@@ -59,54 +60,102 @@
 let capturedImage = null;
 let cameraStream  = null;
 
+// ── State 1: initial — start camera + capture(disabled) ───────────────────
+function setState1() {
+  capturedImage = null;
+  document.getElementById('startBtn').style.display   = 'inline-flex';
+  document.getElementById('stopBtn').style.display    = 'none';
+  document.getElementById('captureBtn').style.display = 'inline-flex';
+  document.getElementById('captureBtn').disabled      = true;
+  document.getElementById('retakeBtn').style.display  = 'none';
+  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('video').style.display      = 'block';
+  document.getElementById('captureStatus').innerHTML  =
+    '<span class="dot dot-empty"></span>&nbsp;No photo captured yet';
+  document.getElementById('enrollBtn').disabled = true;
+}
+
+// ── State 2: camera running — stop camera + capture(enabled) ─────────────
+function setState2() {
+  document.getElementById('startBtn').style.display   = 'none';
+  document.getElementById('stopBtn').style.display    = 'inline-flex';
+  document.getElementById('captureBtn').style.display = 'inline-flex';
+  document.getElementById('captureBtn').disabled      = false;
+  document.getElementById('retakeBtn').style.display  = 'none';
+  document.getElementById('previewImg').style.display = 'none';
+  document.getElementById('video').style.display      = 'block';
+  document.getElementById('captureStatus').innerHTML  =
+    '<span class="dot dot-empty"></span>&nbsp;No photo captured yet';
+  document.getElementById('enrollBtn').disabled = true;
+}
+
+// ── State 3: photo taken — stop camera + retake ───────────────────────────
+function setState3() {
+  document.getElementById('startBtn').style.display   = 'none';
+  document.getElementById('stopBtn').style.display    = 'inline-flex';
+  document.getElementById('captureBtn').style.display = 'none';
+  document.getElementById('retakeBtn').style.display  = 'inline-flex';
+  document.getElementById('retakeBtn').disabled       = false;
+  document.getElementById('previewImg').style.display = 'block';
+  document.getElementById('video').style.display      = 'none';
+  document.getElementById('captureStatus').innerHTML  =
+    '<span class="dot dot-green"></span>&nbsp;Photo captured ✓';
+  document.getElementById('enrollBtn').disabled = false;
+}
+
+// ── State 4: camera stopped with photo — start camera + capture(disabled) ─
+function setState4() {
+  document.getElementById('startBtn').style.display   = 'inline-flex';
+  document.getElementById('stopBtn').style.display    = 'none';
+  document.getElementById('captureBtn').style.display = 'inline-flex';
+  document.getElementById('captureBtn').disabled      = true;
+  document.getElementById('retakeBtn').style.display  = 'none';
+  document.getElementById('previewImg').style.display = 'block';
+  document.getElementById('video').style.display      = 'none';
+  document.getElementById('captureStatus').innerHTML  =
+    '<span class="dot dot-green"></span>&nbsp;Photo captured ✓';
+  document.getElementById('enrollBtn').disabled = false;
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────
 async function startCamera() {
+  // Starting camera always clears any old photo (state 4 -> state 2)
+  capturedImage = null;
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
     document.getElementById('video').srcObject = cameraStream;
-    document.getElementById('startBtn').disabled   = true;
-    document.getElementById('captureBtn').disabled = false;
+    setState2();
   } catch(e) {
     alert('Camera error: ' + e.message);
   }
 }
 
-function capturePhoto() {
-  // Disable retake during capture so the user can't interrupt
-  document.getElementById('captureBtn').disabled = true;
-  document.getElementById('retakeBtn').disabled  = true;
+function stopCamera() {
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+  document.getElementById('video').srcObject = null;
+  if (capturedImage) {
+    setState4();   // photo exists → keep it, go to state 4
+  } else {
+    setState1();   // no photo → full reset, go to state 1
+  }
+}
 
+function capturePhoto() {
+  document.getElementById('captureBtn').disabled = true;  // prevent double-click
   const video  = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   canvas.width  = video.videoWidth  || 640;
   canvas.height = video.videoHeight || 480;
   canvas.getContext('2d').drawImage(video, 0, 0);
   capturedImage = canvas.toDataURL('image/jpeg', 0.85);
-
-  // Show preview
-  const preview = document.getElementById('previewImg');
-  preview.style.backgroundImage = `url(${capturedImage})`;
-  preview.style.display   = 'block';
-  video.style.display     = 'none';
-
-  document.getElementById('captureBtn').style.display = 'none';
-  document.getElementById('retakeBtn').style.display  = 'inline-flex';
-  document.getElementById('retakeBtn').disabled       = false;  // re-enable after capture done
-
-  document.getElementById('captureStatus').innerHTML =
-    '<span class="dot dot-green"></span>&nbsp;Photo captured ✓';
-  document.getElementById('enrollBtn').disabled = false;
+  document.getElementById('previewImg').style.backgroundImage = `url(${capturedImage})`;
+  setState3();
 }
 
 function retake() {
+  // Retake only available in state 3 (camera is still running) → go back to state 2
   capturedImage = null;
-  document.getElementById('previewImg').style.display = 'none';
-  document.getElementById('video').style.display      = 'block';
-  document.getElementById('captureBtn').style.display = 'inline-flex';
-  document.getElementById('captureBtn').disabled      = false;
-  document.getElementById('retakeBtn').style.display  = 'none';
-  document.getElementById('captureStatus').innerHTML =
-    '<span class="dot dot-empty"></span>&nbsp;No photo captured yet';
-  document.getElementById('enrollBtn').disabled = true;
+  setState2();
 }
 
 async function enrollStudent() {
@@ -133,7 +182,8 @@ async function enrollStudent() {
 
     if (data.success) {
       document.getElementById('studentName').value = '';
-      retake();
+      stopCamera();
+      setState1();
       loadStudents();
     }
   } catch(e) {
@@ -167,6 +217,8 @@ async function deleteStudent(id, name) {
   loadStudents();
 }
 
+// Start at state 1
+setState1();
 loadStudents();
 </script>
 {% endblock %}
