@@ -295,6 +295,42 @@ def api_delete_student(sid):
     return jsonify(success=True)
 
 
+# ---------------------------------------------------------------------------
+# API: manually mark a student present for a given week (from recognize page)
+# ---------------------------------------------------------------------------
+@app.route('/api/attendance/mark', methods=['POST'])
+def api_mark_attendance():
+    data       = request.get_json(force=True)
+    student_id = data.get('student_id')
+    week       = data.get('week')
+
+    try:
+        week = int(week)
+        assert 1 <= week <= NUM_WEEKS
+    except (TypeError, ValueError, AssertionError):
+        return jsonify(success=False, message='Invalid week.')
+
+    week_col = f'week{week}'
+    with get_db() as conn:
+        current = conn.execute(
+            f'SELECT name, {week_col} FROM students WHERE id=?', (student_id,)
+        ).fetchone()
+        if current is None:
+            return jsonify(success=False, message='Student not found.')
+
+        if current[week_col] == 1:
+            return jsonify(success=True, already=True,
+                           name=current['name'],
+                           message=f'{current["name"]} already marked present for Week {week}.')
+
+        conn.execute(f'UPDATE students SET {week_col}=1 WHERE id=?', (student_id,))
+        conn.commit()
+
+    return jsonify(success=True, already=False,
+                   name=current['name'],
+                   message=f'{current["name"]} marked present for Week {week}.')
+
+
 if __name__ == '__main__':
     init_db()
     _load_spoof_models()    # load once at startup

@@ -61,7 +61,7 @@ async function loadAttendance() {
     const weekCells = Array.from({length: 14}, (_, k) => {
       const present = s[`week${k+1}`] === 1;
       if (present) total++;
-      return `<td class="${present ? 'cell-present' : 'cell-absent'}">${present ? '✔' : ''}</td>`;
+      return `<td class="${present ? 'cell-present' : 'cell-absent'}">${present ? '✔' : '✗'}</td>`;
     }).join('');
 
     return `
@@ -71,7 +71,7 @@ async function loadAttendance() {
           <span class="mini-avatar">${s.name[0].toUpperCase()}</span>${s.name}
         </td>
         ${weekCells}
-        <td class="total-cell">${total}/14</td>
+        <td class="total-cell" id="total-${s.id}">${total}/14</td>
       </tr>`;
   }).join('');
 

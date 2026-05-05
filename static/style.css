@@ -308,7 +308,7 @@ body {
 .total-cell   { font-family: var(--mono); font-weight: 600; color: var(--accent); }
 
 .cell-present { color: var(--accent); font-size: 1rem; }
-.cell-absent  { color: var(--border); }
+.cell-absent  { color: var(--danger); opacity: .5; }
 
 /* ── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 800px) {
@@ -317,3 +317,29 @@ body {
   .navbar { padding: 0 1rem; }
   .container { padding: 1.2rem 1rem 3rem; }
 }
+
+/* ── Manual mark ───────────────────────────────────────────────────────────── */
+.manual-mark { margin-bottom: 1.2rem; }
+.manual-mark h3 {
+  font-size: .72rem; font-weight: 700; letter-spacing: .1em;
+  color: var(--text-muted); text-transform: uppercase; margin-bottom: .7rem;
+}
+.manual-mark-row { display: flex; gap: .6rem; }
+.manual-mark-row .form-input { flex: 1; margin-bottom: 0; }
+
+.search-results {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-top: .3rem;
+  overflow: hidden;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.search-item {
+  padding: .6rem .9rem;
+  font-size: .88rem;
+  cursor: pointer;
+  transition: background .15s;
+}
+.search-item:hover { background: var(--border); }

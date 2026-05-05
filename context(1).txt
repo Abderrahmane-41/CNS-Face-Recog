@@ -1,0 +1,356 @@
+═══════════════════════════════════════════════════════════════
+  FACEGUARD — Project Context & Change Log
+═══════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────────────
+SESSION 1 — Initial Build
+────────────────────────────────────────────────────────────────
+
+PROJECT GOAL
+  A Flask-based student face recognition attendance system with:
+  - Anti-spoofing (liveness detection) to block photos/masks
+  - Face recognition to identify enrolled students
+  - Attendance logging with a web UI
+
+ARCHITECTURE DECIDED
+  Two separate models work together:
+  1. Silent-Face-Anti-Spoofing (GitHub: minivision-ai)
+       → Answers: "Is this a real face or a spoof?"
+       → Must be cloned separately next to the project folder
+  2. face_recognition library (pip install face_recognition)
+       → Answers: "Whose face is this?"
+       → Uses face_distance() for matching, not compare_faces()
+
+RECOGNITION PIPELINE (confirmed by user)
+  Camera frame
+    → Silent-Face anti-spoof check   (block if fake)
+    → face_recognition.face_encodings()
+    → face_recognition.face_distance() vs all stored encodings
+    → best match below threshold → mark present
+
+DATABASE SCHEMA (original)
+  Table: students   → id, name, encoding (JSON)
+  Table: attendance → id, student_id, date, time
+
+FILES CREATED
+  app.py                         Flask backend + all API routes
+  templates/base.html            Shared layout with navbar
+  templates/index.html           Recognition page (camera + status)
+  templates/enroll.html          Student enrollment page
+  templates/attendance.html      Attendance log filtered by date
+  static/css/main.css            Dark techy UI (Syne + DM Mono fonts)
+  requirements.txt               flask, opencv-python, face_recognition,
+                                 numpy, torch, torchvision
+  README.md                      Setup instructions
+
+API ROUTES (original)
+  GET  /                         Recognition page
+  GET  /enroll                   Enroll page
+  GET  /attendance               Attendance page
+  POST /api/enroll               Enroll student (name + image)
+  POST /api/recognize            Recognize face + mark attendance
+  GET  /api/attendance?date=X    Fetch attendance for a date
+  GET  /api/students             List all students
+  DELETE /api/students/<id>      Remove a student
+
+
+────────────────────────────────────────────────────────────────
+SESSION 2 — Refactor & Bug Fixes
+────────────────────────────────────────────────────────────────
+
+BUGS FIXED
+
+  1. CRITICAL — Silent-Face working directory bug (500 error on /api/recognize)
+     Root cause: Silent-Face's test.py uses relative paths like
+       "./resources/detection_model/deploy.prototxt"
+     When called from the project folder, these paths don't resolve.
+     Fix: In is_real_face(), temporarily os.chdir() into the Silent-Face
+     repo before calling spoof_test(), then restore the original directory
+     in a finally block. This makes all internal relative paths work.
+
+  2. CSS path fixed
+     Old: /static/css/main.css
+     New: /static/style.css  (matches user's actual project structure)
+     base.html updated to use {{ url_for('static', filename='style.css') }}
+
+  3. Frontend fetch error handling improved
+     Before: showed "Connection error" on any non-200 response
+     After: reads res.ok + res.status and shows the actual server error,
+     making debugging much easier
+
+SCHEMA CHANGE — Attendance model redesigned
+  Old: Two tables (students + separate attendance table with date/time rows)
+  New: Single table with week columns embedded in students table
+     students: id, name, encoding, week1, week2, ..., week14 (INTEGER 0/1)
+  Reason: Simpler queries, easier to display the 14-week grid,
+  no JOIN needed for the attendance view.
+
+NEW FEATURES ADDED
+
+  Recognition page (index.html):
+  - Week selector dropdown (Week 1 → Week 14)
+  - "Stop Camera" button added alongside Start/Scan
+  - Scan now sends selected week to backend
+  - Duplicate check is now per-week (already marked for THIS week)
+  - Session log shows week number alongside name/confidence/time
+
+  Attendance page (attendance.html):
+  - Completely redesigned as a 14-column grid table
+  - Columns: ID | Name | W1 | W2 | ... | W14 | Total
+  - ✔ shown in green for present, empty cell for absent
+  - Total column shows X/14 count per student
+  - Export CSV includes all 14 weeks + total
+  - No more date filter (replaced by the week-based model)
+
+  Enroll page (enroll.html):
+  - Retake button disabled during the capture process (prevents race condition)
+  - Re-enabled after capture is complete
+  - face_encodings() now uses model='small' and num_jitters=1 for speed
+    (faster enrollment, still accurate enough)
+
+API CHANGES
+  POST /api/recognize  now requires { image, week } (week: 1–14)
+  GET  /api/attendance now returns all students with week1..week14 columns
+  Removed date-based attendance filtering (no longer needed)
+  DELETE /api/students/<id> no longer deletes from attendance table
+    (attendance is embedded in the students table now)
+
+PROJECT FILE STRUCTURE
+  faceguard/
+  ├── app.py
+  ├── templates/
+  │   ├── base.html
+  │   ├── index.html
+  │   ├── enroll.html
+  │   └── attendance.html
+  ├── static/
+  │   └── style.css
+  ├── database/
+  │   └── attendance.db  (auto-created on first run)
+  ├── requirements.txt
+  └── context.txt  (this file)
+
+  (Silent-Face-Anti-Spoofing repo must be cloned as a sibling folder)
+
+HOW TO RUN
+  git clone https://github.com/minivision-ai/Silent-Face-Anti-Spoofing ../Silent-Face-Anti-Spoofing
+  pip install -r requirements.txt
+  pip install -r ../Silent-Face-Anti-Spoofing/requirements.txt
+  python app.py
+  → Open http://localhost:5000
+
+TUNABLE PARAMETERS (in app.py)
+  SPOOF_THRESH    = 0.6   # anti-spoof sensitivity (higher = stricter)
+  RECOGNITION_THR = 0.50  # face match threshold   (lower  = stricter)
+  NUM_WEEKS       = 14    # number of week columns
+
+
+────────────────────────────────────────────────────────────────
+SESSION 3 — Bug Fixes (anti-spoof error + attendance page)
+────────────────────────────────────────────────────────────────
+
+BUGS FIXED
+
+  1. CRITICAL — Anti-spoof ufunc 'add' TypeError
+     Error: "ufunc 'add' did not contain a loop with signature matching
+             types (dtype('<U16'), dtype('uint8')) -> None"
+     Root cause: Silent-Face's test() function expects a FILE PATH (string)
+     as its first argument, not a numpy array. We were passing the decoded
+     frame (np.ndarray) directly, which caused numpy to try to concatenate
+     a string path with uint8 pixel data internally — hence the ufunc error.
+     Fix (app.py): In is_real_face(), save the frame to a temp .jpg file
+     using tempfile.NamedTemporaryFile + cv2.imwrite(), pass the file path
+     to spoof_test(), then delete the temp file in the finally block.
+     Files changed: app.py
+       - Added `import tempfile`
+       - is_real_face() now writes frame → tmp file → passes path → cleans up
+
+  2. Attendance page stuck on "Loading…" when no students enrolled
+     Root cause: The loadAttendance() async function had no try/catch.
+     If the fetch threw any error (network hiccup, startup timing), the
+     promise rejected silently and the tbody was never updated — leaving
+     the hardcoded "Loading…" placeholder visible forever.
+     Even when the fetch succeeded and returned [], the empty-state branch
+     ran correctly — but any unhandled exception before that prevented it.
+     Fix (attendance.html): Wrapped fetch in try/catch. On error, shows
+     a descriptive message. On empty array [], correctly shows
+     "No students enrolled yet." immediately.
+     Files changed: templates/attendance.html
+       - loadAttendance() now has try/catch around fetch
+       - Error state renders a readable message in the table
+
+
+------------------------------------------------------------------------
+SESSION 4 -- Bug Fixes (temp file path + old DB schema migration)
+------------------------------------------------------------------------
+
+BUGS FIXED
+
+  1. Anti-spoof error: 'NoneType' object has no attribute 'shape'
+     Root cause: The temp file path was NOT made absolute before os.chdir().
+     When Silent-Face's test() internally called cv2.imread(tmp_path), it
+     resolved the path relative to the NEW working directory (the Silent-Face
+     repo folder), producing a corrupted path like:
+       ./images/sample/C:\Users\...\AppData\Local\Temp\tmpXXX.jpg
+     cv2.imread() returned None, and the next operation on it (.shape) crashed.
+     Fix (app.py, is_real_face):
+       tmp_path = os.path.abspath(tmp.name)   <-- added abspath() BEFORE chdir
+     Also added a check: if cv2.imwrite() returns False, raise a clear error
+     instead of silently passing None into the pipeline.
+
+  2. sqlite3.OperationalError: no such column: week1
+     Root cause: The database file already existed with the OLD schema
+     (id, name, encoding only -- no week columns). SQLite's
+     CREATE TABLE IF NOT EXISTS skips creation if the table exists,
+     so the week columns were never added to the on-disk table.
+     Fix (app.py, init_db):
+       After CREATE TABLE IF NOT EXISTS, read the actual columns with
+       PRAGMA table_info(students) and ALTER TABLE ADD COLUMN for any
+       missing week1..week14 columns.
+       This is a non-destructive migration -- existing student records
+       and encodings are preserved, week columns are added with DEFAULT 0.
+     Action required: just restart the app (python app.py). No need to
+     delete the database manually.
+
+FILES CHANGED
+  app.py  -- is_real_face() absolute path fix + init_db() migration logic
+
+
+------------------------------------------------------------------------
+SESSION 5 -- Root cause found and fixed: bypass test.py entirely
+------------------------------------------------------------------------
+
+ROOT CAUSE OF ALL ANTI-SPOOF ERRORS
+  After reading the actual Silent-Face source code, the real problem was
+  identified: test.py hardcodes a path prefix at the top of the file:
+    SAMPLE_IMAGE_PATH = "./images/sample/"
+  The test() function does:
+    image = cv2.imread(SAMPLE_IMAGE_PATH + image_name)
+  So no matter what path we pass in, it always prepends "./images/sample/".
+  On Windows with an absolute path this produces:
+    ./images/sample/C:\Users\...\Temp\tmpXXX.jpg
+  which is an invalid path -- cv2.imread() returns None -- and then the
+  very next line does image.shape which crashes with:
+    'NoneType' object has no attribute 'shape'
+  This cannot be fixed by making paths absolute. test.py is simply not
+  designed to accept arbitrary paths -- it only works for files placed
+  in its own ./images/sample/ folder.
+
+FIX APPLIED
+  Bypass test.py completely. Instead, call the underlying classes that
+  test.py itself uses internally:
+    from src.anti_spoof_predict import AntiSpoofPredict
+    from src.generate_patches import CropImage
+    from src.utility import parse_model_name
+  These accept numpy arrays directly, no file paths involved at all.
+  The logic mirrors what test.py does internally, but works with any
+  numpy array passed from our Flask route.
+
+  Additional improvement: models are loaded ONCE at startup via
+  _load_spoof_models() instead of on every request. This makes
+  the first scan much faster after the server starts.
+
+  Removed tempfile import -- no longer needed at all.
+
+DATABASE NOTE
+  Migration code removed. init_db() is now simple again.
+  Action required from user: delete database/attendance.db manually
+  before restarting, since the old schema has no week columns.
+  The file will be recreated fresh on next python app.py.
+
+FILES CHANGED
+  app.py -- complete rewrite of anti-spoofing integration
+
+
+------------------------------------------------------------------------
+SESSION 6 -- Fixed parse_model_name unpack + missing get_bbox call
+------------------------------------------------------------------------
+
+BUGS FIXED
+
+  1. "not enough values to unpack (expected 5, got 4)"
+     Root cause: parse_model_name() returns exactly 4 values:
+       (h_input, w_input, model_type, scale)
+     parsed from filenames like: 2.7_80x80_MiniFASNetV2.pth
+     We were unpacking 5 values which caused the ValueError immediately.
+     Fix: changed unpack to exactly 4 variables.
+
+  2. bbox=None was being passed to the image cropper
+     In the previous version we skipped get_bbox() and passed bbox=None
+     with crop=False. The correct flow (matching test.py exactly) is:
+       image_bbox = _spoof_predictor.get_bbox(bgr_frame)
+     and then pass that bbox with crop=True to the cropper.
+     This is how the model was trained to receive input patches.
+     Fix: added get_bbox() call before the model loop, crop=True in param.
+
+  NOTE: Both fixes bring is_real_face() into exact alignment with test.py's
+  internal loop, just operating on a numpy array instead of a file path.
+
+FILES CHANGED
+  app.py -- parse_model_name unpack fix + get_bbox() call added
+
+
+------------------------------------------------------------------------
+SESSION 7 -- Attendance page: absent markers + manual toggle
+------------------------------------------------------------------------
+
+CHANGES
+
+  1. Absent cells now show ✗ instead of being empty
+     Makes it immediately clear which weeks a student missed,
+     rather than leaving the cell blank and ambiguous.
+     CSS: cell-absent color changed to danger (red) at 50% opacity.
+
+  2. Every week cell is now clickable to manually toggle attendance
+     Clicking a cell flips it between present (✔) and absent (✗)
+     and instantly updates the Total column for that row.
+     Useful when face recognition fails or for manual corrections.
+     CSS: cell-toggle class adds cursor:pointer + hover highlight.
+
+  3. New API route added (app.py):
+     POST /api/attendance/toggle
+     Body: { student_id, week }
+     Flips the week column for that student (0->1 or 1->0)
+     Returns: { success, present } where present is the new value (0 or 1)
+
+FILES CHANGED
+  app.py                        -- added /api/attendance/toggle route
+  templates/attendance.html     -- clickable cells, ✗ for absent, live total update
+  static/style.css              -- cell-absent, cell-toggle styles
+
+
+------------------------------------------------------------------------
+SESSION 8 -- Manual mark moved to recognize page, toggle removed
+------------------------------------------------------------------------
+
+BUGS FIXED
+  Toggle route was appended after if __name__ == '__main__' in app.py,
+  so Flask never registered it -> 404 on every call.
+
+CHANGES
+
+  1. Removed all toggle logic from attendance page
+     - No more clickable cells in attendance.html
+     - Removed toggleAttendance() JS function
+     - Removed cell-toggle CSS
+     - Absent cells still show red ✗, present cells show green ✔
+
+  2. Added manual mark section to recognize page (index.html)
+     - Search bar: filters enrolled students by name as you type
+     - Dropdown results: click a name to select it
+     - "Mark Present" button: marks selected student for the chosen week
+     - Uses the same week selector already on the page
+     - Result shown in the status box, logged in session log as "manual"
+     - Student list loaded once on page load via /api/students
+
+  3. New API route (app.py) placed BEFORE __main__:
+     POST /api/attendance/mark
+     Body: { student_id, week }
+     Marks that week column as 1 (idempotent — returns already=true if set)
+     Returns: { success, already, name, message }
+
+FILES CHANGED
+  app.py                    -- added /api/attendance/mark before __main__
+  templates/index.html      -- manual mark UI + JS
+  templates/attendance.html -- removed toggle, kept ✗/✔ display
+  static/style.css          -- added manual-mark styles, removed cell-toggle

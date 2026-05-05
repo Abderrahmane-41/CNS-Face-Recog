@@ -45,6 +45,18 @@
       <div class="status-text">Waiting for scan…</div>
     </div>
 
+    <!-- Manual mark -->
+     <br>
+    <div class="manual-mark">
+      <h3>Mark Manually</h3>
+      <div class="manual-mark-row">
+        <input type="text" id="searchInput" class="form-input" placeholder="Search student name…"
+               oninput="searchStudents()" autocomplete="off"/>
+        <button class="btn btn-accent" onclick="markManually()">Mark Present</button>
+      </div>
+      <div id="searchResults" class="search-results" style="display:none"></div>
+    </div>
+
     <!-- Log -->
     <div class="recent-log">
       <h3>Session Log</h3>
@@ -112,7 +124,7 @@ async function scanFace() {
 
     if (data.success) {
       setStatus(data.already ? 'warning' : 'success', data.message);
-      if (!data.already) addToLog(data.name, data.confidence, week);
+      if (!data.already) addToLog(data.name, data.confidence + '%', week);
     } else {
       setStatus('error', data.message);
     }
@@ -131,7 +143,7 @@ function setStatus(type, msg) {
   box.querySelector('.status-text').textContent = msg;
 }
 
-function addToLog(name, confidence, week) {
+function addToLog(name, label, week) {
   const list  = document.getElementById('logList');
   const empty = list.querySelector('.empty-msg');
   if (empty) empty.remove();
@@ -139,8 +151,68 @@ function addToLog(name, confidence, week) {
   const item = document.createElement('div');
   item.className = 'log-item';
   item.innerHTML = `<span class="log-name">${name}</span>
-                    <span class="log-meta">Wk ${week} · ${confidence}% · ${now}</span>`;
+                    <span class="log-meta">Wk ${week} · ${label} · ${now}</span>`;
   list.prepend(item);
 }
+
+// ── Manual mark ────────────────────────────────────────────────────────────
+let allStudents   = [];
+let selectedStudent = null;
+
+async function loadStudentList() {
+  const res  = await fetch('/api/students');
+  allStudents = await res.json();
+}
+
+function searchStudents() {
+  const query   = document.getElementById('searchInput').value.trim().toLowerCase();
+  const box     = document.getElementById('searchResults');
+  selectedStudent = null;
+
+  if (!query) { box.style.display = 'none'; box.innerHTML = ''; return; }
+
+  const matches = allStudents.filter(s => s.name.toLowerCase().includes(query));
+  if (!matches.length) { box.style.display = 'none'; return; }
+
+  box.style.display = 'block';
+  box.innerHTML = matches.map(s =>
+    `<div class="search-item" onclick="selectStudent(${s.id}, '${s.name}')">${s.name}</div>`
+  ).join('');
+}
+
+function selectStudent(id, name) {
+  selectedStudent = { id, name };
+  document.getElementById('searchInput').value = name;
+  document.getElementById('searchResults').style.display = 'none';
+}
+
+async function markManually() {
+  if (!selectedStudent) {
+    setStatus('error', 'Select a student from the search results first.');
+    return;
+  }
+  const week = document.getElementById('weekSelect').value;
+
+  try {
+    const res  = await fetch('/api/attendance/mark', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ student_id: selectedStudent.id, week: parseInt(week) })
+    });
+    const data = await res.json();
+    if (data.success) {
+      setStatus(data.already ? 'warning' : 'success', data.message);
+      if (!data.already) addToLog(data.name, 'manual', week);
+      document.getElementById('searchInput').value = '';
+      selectedStudent = null;
+    } else {
+      setStatus('error', data.message);
+    }
+  } catch(e) {
+    setStatus('error', 'Mark failed: ' + e.message);
+  }
+}
+
+loadStudentList();
 </script>
 {% endblock %}
