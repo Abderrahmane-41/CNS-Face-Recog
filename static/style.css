@@ -412,3 +412,19 @@ body {
   border: none;
 }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+
+/* ── Students list search ──────────────────────────────────────────────── */
+.students-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .8rem;
+  margin-bottom: .7rem;
+}
+.students-list-header h3 { margin-bottom: 0; }
+.search-inline {
+  width: auto;
+  flex: 0 0 140px;
+  padding: .4rem .75rem;
+  font-size: .8rem;
+}

@@ -10,8 +10,10 @@
 <div class="attendance-layout">
 
   <div class="toolbar">
-    <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV</button>
+    <input type="text" id="attSearch" class="form-input search-inline"
+           placeholder="Search student…" oninput="filterAttendance()"/>
     <span id="summaryText" class="summary-text"></span>
+    <button class="btn btn-ghost" onclick="exportCSV()">⬇ Export CSV</button>
   </div>
 
   <div class="attendance-table-wrapper">
@@ -65,7 +67,7 @@ async function loadAttendance() {
     }).join('');
 
     return `
-      <tr>
+      <tr data-name="${s.name}">
         <td class="row-num">${s.id}</td>
         <td class="student-cell">
           <span class="mini-avatar">${s.name[0].toUpperCase()}</span>${s.name}
@@ -77,6 +79,23 @@ async function loadAttendance() {
 
   const total = tableData.length;
   document.getElementById('summaryText').textContent = `${total} student${total !== 1 ? 's' : ''} enrolled`;
+}
+
+function filterAttendance() {
+  const query = document.getElementById('attSearch').value.trim().toLowerCase();
+  const rows  = document.querySelectorAll('#attendanceBody tr[data-name]');
+  let visible = 0;
+  rows.forEach(row => {
+    const name = row.dataset.name.toLowerCase();
+    const show = !query || name.includes(query);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  // Update summary to reflect filtered count
+  const total = tableData.length;
+  document.getElementById('summaryText').textContent = query
+    ? `${visible} of ${total} student${total !== 1 ? 's' : ''} shown`
+    : `${total} student${total !== 1 ? 's' : ''} enrolled`;
 }
 
 function exportCSV() {

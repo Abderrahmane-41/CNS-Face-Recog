@@ -47,8 +47,13 @@
 
     <!-- Enrolled list -->
     <div class="students-list-section">
-      <h3>Enrolled Students</h3>
+      <div class="students-list-header">
+        <h3>Enrolled Students</h3>
+        <input type="text" id="studentSearch" class="form-input search-inline"
+               placeholder="Search…" oninput="filterStudents()"/>
+      </div>
       <div id="studentsList" class="students-list"></div>
+      <p id="noSearchResult" class="empty-msg" style="display:none">No students match your search.</p>
     </div>
   </div>
 
@@ -224,6 +229,20 @@ function showResult(success, msg) {
 }
 
 // ── Students list ──────────────────────────────────────────────────────────
+function filterStudents() {
+  const query = document.getElementById('studentSearch').value.trim().toLowerCase();
+  const items = document.querySelectorAll('#studentsList .student-item');
+  let visible = 0;
+  items.forEach(item => {
+    const name = item.querySelector('.student-name').textContent.toLowerCase();
+    const show = !query || name.includes(query);
+    item.style.display = show ? 'flex' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('noSearchResult').style.display =
+    (query && visible === 0) ? 'block' : 'none';
+}
+
 async function loadStudents() {
   const res  = await fetch('/api/students');
   const list = await res.json();
