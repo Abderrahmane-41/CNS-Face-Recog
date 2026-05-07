@@ -354,3 +354,75 @@ FILES CHANGED
   templates/index.html      -- manual mark UI + JS
   templates/attendance.html -- removed toggle, kept ✗/✔ display
   static/style.css          -- added manual-mark styles, removed cell-toggle
+
+
+------------------------------------------------------------------------
+SESSION 9 -- Enrolment improvements
+------------------------------------------------------------------------
+
+CHANGES
+
+  1. Duplicate student detection before enrolment (app.py)
+     Before saving a new student, the system now compares the new face
+     encoding against all existing students using face_distance().
+     If the closest match is below RECOGNITION_THR (0.50), enrolment
+     is rejected with a message naming the matching student.
+     This prevents the same person from being enrolled multiple times
+     under different names.
+
+  2. Stop camera clears the photo (templates/enroll.html)
+     Previously: stopping the camera while a photo was captured kept
+     the photo (state 4).
+     Now: stopping the camera ALWAYS clears the captured photo and
+     resets to state 1 (full idle). Rationale: a photo taken while
+     the camera was live has no path to retake without restarting —
+     so keeping it would be misleading. Stop = full reset.
+     State 4 removed from the state machine (now only 3 states).
+
+  3. Successful enrolment restarts the camera (templates/enroll.html)
+     Previously: after a successful enrol the camera stopped.
+     Now: on success the photo is cleared and the camera returns to
+     state 2 (live feed, ready to capture the next student) if it was
+     already running, or restarts via startCamera() if it had stopped.
+     This allows enrolling multiple students in sequence without
+     manually restarting the camera each time.
+
+FILES CHANGED
+  app.py                      -- duplicate check in api_enroll()
+  templates/enroll.html       -- stopCamera() and enrollStudent() logic
+
+
+------------------------------------------------------------------------
+SESSION 10 -- Custom modals for delete + duplicate warning
+------------------------------------------------------------------------
+
+CHANGES
+
+  1. Delete student — custom modal instead of browser alert
+     Clicking ✕ on a student now opens a styled confirmation modal with:
+     - Red icon, student name in bold, warning about attendance records
+     - Cancel button (dismisses) and red "Remove" button (confirms)
+     - Clicking the backdrop also dismisses the modal
+     No more browser confirm() dialog.
+
+  2. Duplicate face warning — modal with "Enroll Anyway" option
+     When a face is too similar to an existing student, instead of
+     blocking enrollment entirely the system now:
+     - Shows a warning modal naming the matched student
+     - Offers Cancel (abort) or "Enroll Anyway" (proceed with force=True)
+     The backend accepts a new `force` boolean in the POST /api/enroll body.
+     When force=True the duplicate check is skipped and the student is
+     enrolled regardless. The API also now returns duplicate=True and
+     matched=<name> in the response so the frontend knows to show the modal
+     rather than a generic error message.
+
+  3. Shared modal infrastructure added
+     Two modal HTML elements added to enroll.html (deleteModal,
+     duplicateModal). openModal() / closeModal() helpers + backdrop-click
+     dismiss. Animated scale-in entrance via CSS keyframes.
+     .btn-danger class added to style.css (red background).
+
+FILES CHANGED
+  app.py                    -- force flag in api_enroll(), duplicate=True in response
+  templates/enroll.html     -- two modal dialogs, updated JS logic
+  static/style.css          -- modal styles + btn-danger

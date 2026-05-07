@@ -21,8 +21,8 @@
     <div class="camera-controls">
       <button id="startBtn"   class="btn btn-primary"   onclick="startCamera()">▶ Start Camera</button>
       <button id="stopBtn"    class="btn btn-ghost"     onclick="stopCamera()"   style="display:none">■ Stop Camera</button>
-      <button id="captureBtn" class="btn btn-secondary"  onclick="capturePhoto()" disabled>📸 Capture</button>
-      <button id="retakeBtn"  class="btn btn-ghost"      onclick="retake()" style="display:none" disabled>↺ Retake</button>
+      <button id="captureBtn" class="btn btn-secondary" onclick="capturePhoto()" disabled>📸 Capture</button>
+      <button id="retakeBtn"  class="btn btn-ghost"     onclick="retake()"       style="display:none" disabled>↺ Retake</button>
     </div>
   </div>
 
@@ -53,14 +53,44 @@
   </div>
 
 </div>
+
+<!-- ── Delete confirmation modal ─────────────────────────────────────────── -->
+<div id="deleteModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-icon modal-icon-danger">✕</div>
+    <h3 class="modal-title">Remove Student</h3>
+    <p class="modal-body">Are you sure you want to remove <strong id="deleteStudentName"></strong>?
+      This will also erase all their attendance records.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('deleteModal')">Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Duplicate warning modal ───────────────────────────────────────────── -->
+<div id="duplicateModal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-icon modal-icon-warning">⚠</div>
+    <h3 class="modal-title">Similar Face Detected</h3>
+    <p class="modal-body" id="duplicateMsg"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('duplicateModal')">Cancel</button>
+      <button class="btn btn-accent" id="confirmEnrollAnywayBtn">Enroll Anyway</button>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-let capturedImage = null;
-let cameraStream  = null;
+let capturedImage     = null;
+let cameraStream      = null;
+let pendingDeleteId   = null;   // student id waiting for delete confirmation
+let pendingEnrollName = null;   // name waiting for force-enroll confirmation
 
-// ── State 1: initial — start camera + capture(disabled) ───────────────────
+// ── State machine ──────────────────────────────────────────────────────────
 function setState1() {
   capturedImage = null;
   document.getElementById('startBtn').style.display   = 'inline-flex';
@@ -75,7 +105,6 @@ function setState1() {
   document.getElementById('enrollBtn').disabled = true;
 }
 
-// ── State 2: camera running — stop camera + capture(enabled) ─────────────
 function setState2() {
   document.getElementById('startBtn').style.display   = 'none';
   document.getElementById('stopBtn').style.display    = 'inline-flex';
@@ -89,7 +118,6 @@ function setState2() {
   document.getElementById('enrollBtn').disabled = true;
 }
 
-// ── State 3: photo taken — stop camera + retake ───────────────────────────
 function setState3() {
   document.getElementById('startBtn').style.display   = 'none';
   document.getElementById('stopBtn').style.display    = 'inline-flex';
@@ -103,45 +131,27 @@ function setState3() {
   document.getElementById('enrollBtn').disabled = false;
 }
 
-// ── State 4: camera stopped with photo — start camera + capture(disabled) ─
-function setState4() {
-  document.getElementById('startBtn').style.display   = 'inline-flex';
-  document.getElementById('stopBtn').style.display    = 'none';
-  document.getElementById('captureBtn').style.display = 'inline-flex';
-  document.getElementById('captureBtn').disabled      = true;
-  document.getElementById('retakeBtn').style.display  = 'none';
-  document.getElementById('previewImg').style.display = 'block';
-  document.getElementById('video').style.display      = 'none';
-  document.getElementById('captureStatus').innerHTML  =
-    '<span class="dot dot-green"></span>&nbsp;Photo captured ✓';
-  document.getElementById('enrollBtn').disabled = false;
-}
-
-// ── Actions ───────────────────────────────────────────────────────────────
+// ── Camera actions ─────────────────────────────────────────────────────────
 async function startCamera() {
-  // Starting camera always clears any old photo (state 4 -> state 2)
   capturedImage = null;
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
     document.getElementById('video').srcObject = cameraStream;
     setState2();
   } catch(e) {
-    alert('Camera error: ' + e.message);
+    showResult(false, 'Camera error: ' + e.message);
   }
 }
 
 function stopCamera() {
   if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   document.getElementById('video').srcObject = null;
-  if (capturedImage) {
-    setState4();   // photo exists → keep it, go to state 4
-  } else {
-    setState1();   // no photo → full reset, go to state 1
-  }
+  capturedImage = null;
+  setState1();
 }
 
 function capturePhoto() {
-  document.getElementById('captureBtn').disabled = true;  // prevent double-click
+  document.getElementById('captureBtn').disabled = true;
   const video  = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   canvas.width  = video.videoWidth  || 640;
@@ -153,15 +163,15 @@ function capturePhoto() {
 }
 
 function retake() {
-  // Retake only available in state 3 (camera is still running) → go back to state 2
   capturedImage = null;
   setState2();
 }
 
-async function enrollStudent() {
+// ── Enrolment ──────────────────────────────────────────────────────────────
+async function enrollStudent(force = false) {
   const name = document.getElementById('studentName').value.trim();
-  if (!name)          { alert('Please enter the student name.'); return; }
-  if (!capturedImage) { alert('Please capture a photo first.'); return; }
+  if (!name)          { showResult(false, 'Please enter the student name.'); return; }
+  if (!capturedImage) { showResult(false, 'Please capture a photo first.'); return; }
 
   const btn = document.getElementById('enrollBtn');
   btn.disabled    = true;
@@ -171,29 +181,49 @@ async function enrollStudent() {
     const res  = await fetch('/api/enroll', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ name, image: capturedImage })
+      body:    JSON.stringify({ name, image: capturedImage, force })
     });
     const data = await res.json();
 
-    const resultDiv = document.getElementById('enrollResult');
-    resultDiv.style.display = 'block';
-    resultDiv.className     = 'enroll-result ' + (data.success ? 'result-success' : 'result-error');
-    resultDiv.textContent   = data.message;
-
     if (data.success) {
+      showResult(true, data.message);
       document.getElementById('studentName').value = '';
-      stopCamera();
-      setState1();
+      capturedImage = null;
+      if (cameraStream) { setState2(); } else { startCamera(); }
       loadStudents();
+
+    } else if (data.duplicate) {
+      // Show duplicate warning modal instead of blocking outright
+      pendingEnrollName = name;
+      document.getElementById('duplicateMsg').innerHTML =
+        `This face is too similar to already enrolled student <strong>"${data.matched}"</strong>.<br><br>
+         Do you want to enroll <strong>"${name}"</strong> anyway?`;
+      document.getElementById('confirmEnrollAnywayBtn').onclick = () => {
+        closeModal('duplicateModal');
+        enrollStudent(true);   // retry with force=true
+      };
+      openModal('duplicateModal');
+
+    } else {
+      showResult(false, data.message);
     }
+
   } catch(e) {
-    alert('Error: ' + e.message);
+    showResult(false, 'Error: ' + e.message);
   } finally {
     btn.disabled    = false;
     btn.textContent = 'Enroll Student';
   }
 }
 
+function showResult(success, msg) {
+  const div = document.getElementById('enrollResult');
+  div.style.display = 'block';
+  div.className     = 'enroll-result ' + (success ? 'result-success' : 'result-error');
+  div.textContent   = msg;
+}
+
+// ── Students list ──────────────────────────────────────────────────────────
 async function loadStudents() {
   const res  = await fetch('/api/students');
   const list = await res.json();
@@ -206,18 +236,39 @@ async function loadStudents() {
     <div class="student-item">
       <span class="student-avatar">${s.name[0].toUpperCase()}</span>
       <span class="student-name">${s.name}</span>
-      <button class="btn-delete" onclick="deleteStudent(${s.id}, '${s.name}')">✕</button>
+      <button class="btn-delete" onclick="confirmDelete(${s.id}, '${s.name.replace(/'/g, "\\'")}')">✕</button>
     </div>
   `).join('');
 }
 
-async function deleteStudent(id, name) {
-  if (!confirm(`Remove ${name} from the system?`)) return;
-  await fetch(`/api/students/${id}`, { method: 'DELETE' });
-  loadStudents();
+// ── Delete modal ───────────────────────────────────────────────────────────
+function confirmDelete(id, name) {
+  pendingDeleteId = id;
+  document.getElementById('deleteStudentName').textContent = name;
+  document.getElementById('confirmDeleteBtn').onclick = async () => {
+    closeModal('deleteModal');
+    await fetch(`/api/students/${pendingDeleteId}`, { method: 'DELETE' });
+    pendingDeleteId = null;
+    loadStudents();
+  };
+  openModal('deleteModal');
 }
 
-// Start at state 1
+// ── Modal helpers ──────────────────────────────────────────────────────────
+function openModal(id) {
+  document.getElementById(id).style.display = 'flex';
+}
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+// Close modal when clicking the backdrop
+document.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.style.display = 'none';
+  }
+});
+
+// ── Init ───────────────────────────────────────────────────────────────────
 setState1();
 loadStudents();
 </script>

@@ -175,7 +175,26 @@ def api_enroll():
     if not encs:
         return jsonify(success=False, message='No face detected. Try better lighting or move closer.')
 
-    encoding = json.dumps(encs[0].tolist())
+    new_enc = encs[0]
+    force   = bool(data.get('force', False))  # bypass duplicate check if user confirmed
+
+    # Duplicate check (skipped if user explicitly confirmed via force=True)
+    if not force:
+        with get_db() as conn:
+            rows = conn.execute('SELECT id, name, encoding FROM students').fetchall()
+
+        if rows:
+            existing_encs = [np.array(json.loads(r['encoding'])) for r in rows]
+            distances     = face_recognition.face_distance(existing_encs, new_enc)
+            best_idx      = int(np.argmin(distances))
+            if distances[best_idx] < RECOGNITION_THR:
+                matched_name = rows[best_idx]['name']
+                return jsonify(success=False,
+                               duplicate=True,
+                               matched=matched_name,
+                               message=f'This face is too similar to already enrolled student "{matched_name}".')
+
+    encoding = json.dumps(new_enc.tolist())
     with get_db() as conn:
         conn.execute('INSERT INTO students (name, encoding) VALUES (?, ?)', (name, encoding))
         conn.commit()
